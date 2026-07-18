@@ -1,0 +1,925 @@
+import React, { useState, useMemo } from 'react';
+import { 
+  Leaf, Sprout, TreeDeciduous, MapPin, 
+  Calendar, Search, Plus, TrendingUp, 
+  Map, LayoutDashboard, ListTree, CheckCircle2,
+  AlertCircle, X, Truck, RefreshCw,
+  Thermometer, Droplets, Sun, Wind, FlaskConical, CloudRain,
+  QrCode, Printer, Camera, ScanLine, GitBranch, AlertTriangle
+} from 'lucide-react';
+
+// --- DATABASE ALIGNED MOCK DATA ---
+const initialBatches = [
+  {
+    id: '2025-09-ACMA-DISC', 
+    parent_id: null,         
+    species: 'Acer macrophyllum',
+    commonName: 'Bigleaf Maple',
+    collectionType: 'Seed',
+    collectionDate: '2025-09-15',
+    sourceLocation: 'Nimz West Quad',
+    initialQty: 500,
+    currentQty: 320,
+    status: 'Growing',
+    nurseryLocation: 'Greenhouse A - Row 3',
+    flags: [], 
+    outplantings: [],
+    stratification: { method: 'Cold Moist (90 days)', status: 'Completed', startDate: '2025-09-20' },
+    planting: { method: 'Direct Sow', soilMix: 'Native Woody Blend v2', potType: 'D40 Deep Cell' },
+    treatments: [{ date: '2025-11-01', type: 'Fertilizer', notes: 'Fish Emulsion 5-1-1' }]
+  },
+  {
+    id: '2025-10-MAAQ-SEWA',
+    parent_id: null,
+    species: 'Mahonia aquifolium',
+    commonName: 'Tall Oregon Grape',
+    collectionType: 'Cutting',
+    collectionDate: '2025-10-02',
+    sourceLocation: 'Reach 2',
+    initialQty: 100,
+    currentQty: 85,
+    status: 'Propagating',
+    nurseryLocation: 'Propagation Bed 1',
+    flags: ['Link4 Alert: Humidity dropped below 40% for 6hrs (10-15)'], 
+    outplantings: [],
+    stratification: { method: 'N/A (Cutting)', status: 'N/A', startDate: '' },
+    planting: { method: 'Stick Cutting', soilMix: '50/50 Perlite & Peat', potType: 'Propagation Flat' },
+    treatments: [{ date: '2025-10-05', type: 'Hormone', notes: 'IBA Rooting Powder 0.1%' }]
+  },
+  {
+    id: '2026-02-POMU-COUG',
+    parent_id: null,
+    species: 'Polystichum munitum',
+    commonName: 'Western Sword Fern',
+    collectionType: 'Transplant',
+    collectionDate: '2026-02-10',
+    sourceLocation: 'Perkins Lake',
+    initialQty: 50,
+    currentQty: 48,
+    status: 'Ready',
+    nurseryLocation: 'Shadehouse 2',
+    flags: [],
+    outplantings: [],
+    stratification: { method: 'N/A', status: 'N/A', startDate: '' },
+    planting: { method: 'Pot Up Transplant', soilMix: 'Standard Potting Mix', potType: '1 Gallon' },
+    treatments: []
+  }
+];
+
+const STATUS_COLORS = {
+  'Collected/Stored': 'bg-stone-100 text-stone-800 border-stone-300',
+  'Propagating': 'bg-sky-100 text-sky-800 border-sky-300',
+  'Growing': 'bg-amber-100 text-amber-800 border-amber-300',
+  'Ready': 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  'Outplanted': 'bg-purple-100 text-purple-800 border-purple-300',
+  'Failed': 'bg-red-100 text-red-800 border-red-300'
+};
+
+// Helper function to generate semantic IDs
+const generateSemanticId = (dateStr, species, source) => {
+  const yyyyMm = dateStr.substring(0, 7);
+  const words = species.split(' ');
+  const spCode = words.length > 1 
+    ? (words[0].substring(0,2) + words[1].substring(0,2)).toUpperCase()
+    : species.substring(0,4).toUpperCase();
+  const srcCode = source.replace(/[^a-zA-Z]/g, '').substring(0,4).toUpperCase();
+  return `${yyyyMm}-${spCode}-${srcCode}`;
+};
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [batches, setBatches] = useState(initialBatches);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Modal States
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [updateTab, setUpdateTab] = useState('status');
+  
+  // QR & Split States
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [batchToPrint, setBatchToPrint] = useState(null);
+  const [scanStatus, setScanStatus] = useState('idle');
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [batchToSplit, setBatchToSplit] = useState(null);
+
+  // Sync State
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingOutplants, setIsSyncingOutplants] = useState(false);
+
+  // --- DERIVED STATE ---
+  const filteredBatches = useMemo(() => {
+    return batches.filter(b => 
+      b.species.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      b.commonName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      b.id.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [batches, searchQuery]);
+
+  const stats = useMemo(() => {
+    const active = batches.filter(b => b.status !== 'Outplanted' && b.status !== 'Failed');
+    return {
+      totalActiveBatches: active.length,
+      totalActivePlants: active.reduce((sum, b) => sum + b.currentQty, 0),
+      readyToPlant: batches.filter(b => b.status === 'Ready').reduce((sum, b) => sum + b.currentQty, 0),
+      totalOutplanted: batches.reduce((sum, b) => sum + b.outplantings.reduce((sub, out) => sub + out.qty, 0), 0),
+      activeAlerts: batches.filter(b => b.flags && b.flags.length > 0).length
+    };
+  }, [batches]);
+
+  // --- HANDLERS ---
+  const handleAddBatch = (newBatch) => {
+    let newId = generateSemanticId(newBatch.collectionDate, newBatch.species, newBatch.sourceLocation);
+    const existingIds = batches.filter(b => b.id.startsWith(newId));
+    if (existingIds.length > 0) {
+      newId = `${newId}-${existingIds.length + 1}`;
+    }
+
+    const batchWithId = {
+      ...newBatch,
+      id: newId,
+      parent_id: null,
+      currentQty: newBatch.initialQty,
+      status: 'Collected/Stored',
+      nurseryLocation: 'Intake Area',
+      flags: [],
+      outplantings: [],
+      stratification: { method: '', status: 'Pending', startDate: '' },
+      planting: { method: '', soilMix: '', potType: '' },
+      treatments: []
+    };
+    setBatches([batchWithId, ...batches]);
+    setIsAddModalOpen(false);
+  };
+
+  const handleUpdateBatch = (updatedBatch) => {
+    setBatches(batches.map(b => b.id === updatedBatch.id ? updatedBatch : b));
+    setIsUpdateModalOpen(false);
+    setSelectedBatch(null);
+  };
+
+  const openUpdateModal = (batch) => {
+    setSelectedBatch(batch);
+    setUpdateTab('status');
+    setIsUpdateModalOpen(true);
+  };
+
+  const handleSplitBatch = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const splitQty = parseInt(fd.get('splitQty'), 10);
+    const newLocation = fd.get('nurseryLocation');
+    const newStatus = fd.get('status');
+    
+    if (splitQty <= 0 || splitQty >= batchToSplit.currentQty) return;
+
+    // 1. Update Parent
+    const updatedParent = {
+      ...batchToSplit,
+      currentQty: batchToSplit.currentQty - splitQty
+    };
+
+    // 2. Generate Child ID
+    const baseId = batchToSplit.id.split('-').length > 4 
+      ? batchToSplit.id.split('-').slice(0, 4).join('-') 
+      : batchToSplit.id;
+    
+    const children = batches.filter(b => b.parent_id === batchToSplit.id || b.id.startsWith(`${baseId}-`));
+    const suffixCode = 65 + children.length; 
+    const childId = `${baseId}-${String.fromCharCode(suffixCode)}`;
+
+    // 3. Create Relational Child
+    const newChild = {
+      ...batchToSplit,
+      id: childId,
+      parent_id: batchToSplit.id, 
+      initialQty: splitQty,
+      currentQty: splitQty,
+      nurseryLocation: newLocation || batchToSplit.nurseryLocation,
+      status: newStatus || batchToSplit.status,
+      flags: [], 
+      treatments: [], 
+      outplantings: [] 
+    };
+
+    setBatches(prev => prev.map(b => b.id === updatedParent.id ? updatedParent : b).concat([newChild]));
+    setIsSplitModalOpen(false);
+    setBatchToSplit(null);
+  };
+
+  const handleSimulateScan = () => {
+    setIsScanModalOpen(true);
+    setScanStatus('scanning');
+    setTimeout(() => {
+      setScanStatus('found');
+      setTimeout(() => {
+        setIsScanModalOpen(false);
+        const foundBatch = batches.find(b => b.id.includes('MAAQ')) || batches[0];
+        openUpdateModal(foundBatch);
+        setScanStatus('idle');
+      }, 1000);
+    }, 2000);
+  };
+
+  const handleSyncSurvey123 = () => {
+    setIsSyncing(true);
+    
+    setTimeout(() => {
+      const today = new Date().toISOString().split('T')[0];
+      const newSurveyBatches = [
+        {
+          id: generateSemanticId(today, 'Thuja plicata', 'AGOL Point: 47.60'),
+          parent_id: null,
+          species: 'Thuja plicata',
+          commonName: 'Western Redcedar',
+          collectionType: 'Seed',
+          collectionDate: today,
+          sourceLocation: 'AGOL Point: 47.6062° N, 122.3321° W',
+          initialQty: 1000,
+          currentQty: 1000,
+          status: 'Collected/Stored',
+          nurseryLocation: 'Intake Area',
+          flags: [],
+          outplantings: [],
+          stratification: { method: '', status: 'Pending', startDate: '' },
+          planting: { method: '', soilMix: '', potType: '' },
+          treatments: []
+        },
+        {
+          id: generateSemanticId(today, 'Cornus sericea', 'AGOL Point: 47.61'),
+          parent_id: null,
+          species: 'Cornus sericea',
+          commonName: 'Red Osier Dogwood',
+          collectionType: 'Cutting',
+          collectionDate: today,
+          sourceLocation: 'AGOL Point: 47.6101° N, 122.3421° W',
+          initialQty: 150,
+          currentQty: 150,
+          status: 'Collected/Stored',
+          nurseryLocation: 'Intake Area',
+          flags: [],
+          outplantings: [],
+          stratification: { method: '', status: 'Pending', startDate: '' },
+          planting: { method: '', soilMix: '', potType: '' },
+          treatments: []
+        }
+      ];
+      setBatches(prev => [...newSurveyBatches, ...prev]);
+      setIsSyncing(false);
+    }, 1500);
+  };
+
+  const handleSyncFieldMaps = () => {
+    setIsSyncingOutplants(true);
+    
+    setTimeout(() => {
+      setBatches(prevBatches => prevBatches.map(batch => {
+        // Simulate field crew planting 20 Sword Ferns from 2026-02-POMU-COUG
+        if (batch.id === '2026-02-POMU-COUG' && batch.currentQty > 0) {
+          const plantedQty = Math.min(20, batch.currentQty);
+          const newQty = batch.currentQty - plantedQty;
+          return {
+            ...batch,
+            currentQty: newQty,
+            status: newQty <= 0 ? 'Outplanted' : batch.status,
+            nurseryLocation: newQty <= 0 ? 'N/A' : batch.nurseryLocation,
+            outplantings: [
+              ...batch.outplantings,
+              {
+                date: new Date().toISOString().split('T')[0],
+                destination: 'AGOL Polygon: Cougar Mtn Restoration Site',
+                qty: plantedQty
+              }
+            ]
+          };
+        }
+        return batch;
+      }));
+      setIsSyncingOutplants(false);
+    }, 1500);
+  };
+
+  // --- COMPONENTS ---
+  const Dashboard = () => (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-stone-800">Nursery Overview</h2>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-4">
+          <div className="p-3 bg-red-100 text-red-600 rounded-lg">
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-stone-500">Active Link4 Alerts</p>
+            <p className="text-2xl font-bold text-stone-800">{stats.activeAlerts}</p>
+          </div>
+        </div>
+        
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-4">
+          <div className="p-3 bg-amber-100 text-amber-600 rounded-lg">
+            <Sprout size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-stone-500">Plants in Nursery</p>
+            <p className="text-2xl font-bold text-stone-800">{stats.totalActivePlants.toLocaleString()}</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-4">
+          <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
+            <ListTree size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-stone-500">Active Batches</p>
+            <p className="text-2xl font-bold text-stone-800">{stats.totalActiveBatches}</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-4">
+          <div className="p-3 bg-purple-100 text-purple-600 rounded-lg">
+            <Map size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-stone-500">Total Outplanted</p>
+            <p className="text-2xl font-bold text-stone-800">{stats.totalOutplanted.toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const Climate = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-800">Environmental Controls</h2>
+          <p className="text-stone-500 text-sm">Live feed from Link4 Greenhouse System & Weather Station</p>
+        </div>
+        <div className="flex items-center text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full text-sm font-medium border border-emerald-200">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse mr-2"></span>
+          Link4 Online
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10"><Thermometer size={64} /></div>
+          <p className="text-sm font-medium text-stone-500 mb-1">Zone 1 Temperature</p>
+          <p className="text-3xl font-bold text-stone-800">72.4°F</p>
+          <p className="text-xs text-emerald-600 mt-2 flex items-center"><TrendingUp size={12} className="mr-1"/> Optimal Range</p>
+        </div>
+        
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10"><Droplets size={64} /></div>
+          <p className="text-sm font-medium text-stone-500 mb-1">Relative Humidity</p>
+          <p className="text-3xl font-bold text-stone-800">65%</p>
+          <p className="text-xs text-emerald-600 mt-2 flex items-center"><TrendingUp size={12} className="mr-1"/> Optimal Range</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10"><Sun size={64} /></div>
+          <p className="text-sm font-medium text-stone-500 mb-1">PAR Light Levels</p>
+          <p className="text-3xl font-bold text-stone-800">420 <span className="text-lg">µmol</span></p>
+          <p className="text-xs text-amber-500 mt-2 flex items-center"><AlertCircle size={12} className="mr-1"/> Shade cloth active</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10"><Wind size={64} /></div>
+          <p className="text-sm font-medium text-stone-500 mb-1">Outside Weather</p>
+          <p className="text-3xl font-bold text-stone-800">48°F</p>
+          <p className="text-xs text-sky-600 mt-2 flex items-center"><CloudRain size={12} className="mr-1"/> Light Rain, Wind 5mph</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
+        <h3 className="font-semibold text-stone-800 mb-4 flex items-center"><FlaskConical className="mr-2 text-sky-600" size={20} /> VPD (Vapor Pressure Deficit) History</h3>
+        <div className="h-48 flex items-end justify-between space-x-2">
+          {[0.6, 0.7, 0.8, 1.0, 1.2, 0.9, 0.8, 0.7, 0.8, 0.9, 1.0, 0.8].map((val, i) => (
+            <div key={i} className="w-full relative group flex justify-center">
+              <div 
+                className={`w-full rounded-t-sm transition-all ${val > 1.0 ? 'bg-amber-400' : val < 0.6 ? 'bg-sky-400' : 'bg-emerald-400'}`} 
+                style={{ height: `${(val / 1.5) * 100}%` }}
+              ></div>
+              <div className="opacity-0 group-hover:opacity-100 absolute -top-8 bg-stone-800 text-white text-xs py-1 px-2 rounded whitespace-nowrap transition-opacity pointer-events-none">
+                {val} kPa
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-between text-xs text-stone-400 mt-2">
+          <span>6 AM</span>
+          <span>12 PM</span>
+          <span>6 PM</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const Inventory = () => (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold text-stone-800">Plant Inventory</h2>
+        <div className="flex flex-wrap gap-3">
+          <button 
+            onClick={handleSimulateScan}
+            className="bg-stone-800 hover:bg-stone-900 text-white px-4 py-2 rounded-lg flex items-center transition-colors shadow-sm"
+          >
+            <Camera size={18} className="mr-2" /> Scan Tag
+          </button>
+          <button 
+            onClick={handleSyncFieldMaps}
+            disabled={isSyncingOutplants}
+            className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white px-4 py-2 rounded-lg flex items-center transition-colors shadow-sm"
+          >
+            <RefreshCw size={18} className={`mr-2 ${isSyncingOutplants ? 'animate-spin' : ''}`} /> 
+            {isSyncingOutplants ? 'Syncing...' : 'Sync Field Maps'}
+          </button>
+          <button 
+            onClick={handleSyncSurvey123}
+            disabled={isSyncing}
+            className="bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white px-4 py-2 rounded-lg flex items-center transition-colors shadow-sm"
+          >
+            <RefreshCw size={18} className={`mr-2 ${isSyncing ? 'animate-spin' : ''}`} /> 
+            {isSyncing ? 'Syncing...' : 'Sync Survey123'}
+          </button>
+          <button 
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg flex items-center transition-colors shadow-sm"
+          >
+            <Plus size={18} className="mr-2" /> New Collection
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-stone-200 bg-stone-50 flex items-center space-x-4">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Search by species, ID, or location..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-stone-50 text-stone-600 text-sm border-b border-stone-200">
+                <th className="p-4 font-semibold">Semantic ID / Species</th>
+                <th className="p-4 font-semibold">Origin & Lineage</th>
+                <th className="p-4 font-semibold">Location</th>
+                <th className="p-4 font-semibold text-right">Qty</th>
+                <th className="p-4 font-semibold text-center">Status</th>
+                <th className="p-4 font-semibold text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-200">
+              {filteredBatches.length > 0 ? filteredBatches.map(batch => (
+                <tr key={batch.id} className="hover:bg-stone-50/50 transition-colors">
+                  <td className="p-4">
+                    <div className="flex items-center space-x-2">
+                      <p className="font-mono font-bold text-stone-800 text-sm">{batch.id}</p>
+                      {batch.flags && batch.flags.length > 0 && (
+                        <AlertTriangle size={16} className="text-red-500 animate-pulse" title={batch.flags[0]} />
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-stone-600 mt-1">{batch.commonName}</p>
+                    <p className="text-xs text-stone-500 italic">{batch.species}</p>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex items-center text-sm text-stone-600">
+                      <MapPin size={14} className="mr-1 text-stone-400" />
+                      <span className="truncate max-w-[150px]" title={batch.sourceLocation}>
+                        {batch.sourceLocation}
+                      </span>
+                    </div>
+                    {batch.parent_id && (
+                      <div className="flex items-center text-xs text-sky-600 mt-1 font-mono bg-sky-50 inline-block px-1 rounded">
+                        ↳ Child of: {batch.parent_id}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-4 text-sm text-stone-700">{batch.nurseryLocation}</td>
+                  <td className="p-4 text-right">
+                    <p className="font-medium text-stone-800">{batch.currentQty}</p>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`px-2.5 py-1 text-xs font-medium rounded-full border inline-block ${STATUS_COLORS[batch.status]}`}>
+                      {batch.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <div className="flex items-center justify-center space-x-3">
+                      <button onClick={() => {setBatchToPrint(batch); setIsPrintModalOpen(true)}} className="text-stone-400 hover:text-stone-700"><Printer size={18} /></button>
+                      <button onClick={() => {setBatchToSplit(batch); setIsSplitModalOpen(true)}} className="text-stone-400 hover:text-sky-600"><GitBranch size={18} /></button>
+                      <button onClick={() => openUpdateModal(batch)} className="text-emerald-600 font-medium hover:underline text-sm">Update</button>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan="6" className="p-8 text-center text-stone-500">No batches found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="h-screen bg-stone-100 flex font-sans overflow-hidden">
+      <aside className="w-64 bg-emerald-900 text-emerald-50 flex-shrink-0 flex flex-col hidden md:flex">
+        <div className="p-6 flex items-center space-x-3 border-b border-emerald-800">
+          <Leaf className="text-emerald-400" size={28} />
+          <h1 className="text-xl font-bold tracking-tight">FloraTrack</h1>
+        </div>
+        <nav className="flex-1 p-4 space-y-2">
+          <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg ${activeTab === 'dashboard' ? 'bg-emerald-800 text-white' : 'hover:bg-emerald-800/50'}`}><LayoutDashboard size={20} /><span>Dashboard</span></button>
+          <button onClick={() => setActiveTab('inventory')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg ${activeTab === 'inventory' ? 'bg-emerald-800 text-white' : 'hover:bg-emerald-800/50'}`}><ListTree size={20} /><span>Inventory</span></button>
+          <button onClick={() => setActiveTab('climate')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg ${activeTab === 'climate' ? 'bg-emerald-800 text-white' : 'hover:bg-emerald-800/50'}`}><CloudRain size={20} /><span>Climate & Link4</span></button>
+        </nav>
+      </aside>
+
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        <header className="md:hidden bg-emerald-900 text-white p-4 flex justify-between">
+          <Leaf size={24}/>
+          <div className="flex space-x-2">
+            <button onClick={()=>setActiveTab('dashboard')} className={`p-2 rounded ${activeTab === 'dashboard' ? 'bg-emerald-800' : ''}`}><LayoutDashboard/></button>
+            <button onClick={()=>setActiveTab('inventory')} className={`p-2 rounded ${activeTab === 'inventory' ? 'bg-emerald-800' : ''}`}><ListTree/></button>
+            <button onClick={()=>setActiveTab('climate')} className={`p-2 rounded ${activeTab === 'climate' ? 'bg-emerald-800' : ''}`}><CloudRain/></button>
+          </div>
+        </header>
+        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+          <div className="max-w-6xl mx-auto">
+            {activeTab === 'dashboard' ? <Dashboard /> : activeTab === 'inventory' ? <Inventory /> : <Climate />}
+          </div>
+        </div>
+      </main>
+
+      {/* MODALS */}
+      {/* Update Batch Modal (Full Tabbed Version) */}
+      {isUpdateModalOpen && selectedBatch && (
+        <div className="fixed inset-0 bg-stone-900/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-stone-200 flex justify-between items-start flex-shrink-0">
+              <div>
+                <h3 className="text-xl font-bold text-stone-800 flex items-center">
+                  Update Batch <span className="ml-3 text-sm font-mono px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-200">{selectedBatch.id}</span>
+                </h3>
+                {selectedBatch.flags && selectedBatch.flags.length > 0 && (
+                  <div className="mt-2 text-sm bg-red-50 text-red-700 p-2 rounded flex items-start border border-red-200">
+                    <AlertTriangle size={16} className="mr-2 mt-0.5 flex-shrink-0"/>
+                    <p><strong>System Flag:</strong> {selectedBatch.flags[0]}</p>
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setIsUpdateModalOpen(false)} className="text-stone-400 hover:text-stone-600"><X size={24} /></button>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="flex border-b border-stone-200 px-6 bg-stone-50 flex-shrink-0 overflow-x-auto">
+              {[
+                { id: 'status', label: 'Status & Location', icon: <MapPin size={16} className="mr-2"/> },
+                { id: 'growing', label: 'Propagation & Soil', icon: <Sprout size={16} className="mr-2"/> },
+                { id: 'treatments', label: 'Fertilizer & Care', icon: <FlaskConical size={16} className="mr-2"/> },
+                { id: 'outplant', label: 'Outplanting', icon: <Truck size={16} className="mr-2"/> }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setUpdateTab(tab.id)}
+                  className={`flex items-center px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                    updateTab === tab.id 
+                      ? 'border-emerald-600 text-emerald-700' 
+                      : 'border-transparent text-stone-500 hover:text-stone-700 hover:border-stone-300'
+                  }`}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
+            </div>
+            
+            <form 
+              className="p-6 overflow-y-auto"
+              id="update-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.target);
+                
+                let updatedBatch = {
+                  ...selectedBatch,
+                  status: fd.get('status') || selectedBatch.status,
+                  nurseryLocation: fd.get('nurseryLocation') || selectedBatch.nurseryLocation,
+                  currentQty: fd.get('currentQty') ? parseInt(fd.get('currentQty'), 10) : selectedBatch.currentQty,
+                  stratification: {
+                    method: fd.get('stratMethod') || selectedBatch.stratification?.method || '',
+                    startDate: fd.get('stratDate') || selectedBatch.stratification?.startDate || '',
+                    status: fd.get('stratStatus') || selectedBatch.stratification?.status || 'Pending'
+                  },
+                  planting: {
+                    method: fd.get('plantMethod') || selectedBatch.planting?.method || '',
+                    soilMix: fd.get('soilMix') || selectedBatch.planting?.soilMix || '',
+                    potType: fd.get('potType') || selectedBatch.planting?.potType || ''
+                  }
+                };
+
+                const treatType = fd.get('newTreatmentType');
+                if (treatType && treatType !== '') {
+                  updatedBatch.treatments = [
+                    ...(updatedBatch.treatments || []),
+                    { 
+                      date: new Date().toISOString().split('T')[0], 
+                      type: treatType, 
+                      notes: fd.get('newTreatmentNotes') || '' 
+                    }
+                  ];
+                }
+
+                const qtyToOutplant = parseInt(fd.get('outplantQty') || 0, 10);
+                if (updatedBatch.status === 'Outplanted' && qtyToOutplant > 0) {
+                  updatedBatch.outplantings = [
+                    ...updatedBatch.outplantings,
+                    {
+                      date: new Date().toISOString().split('T')[0],
+                      destination: fd.get('destination'),
+                      qty: qtyToOutplant
+                    }
+                  ];
+                  updatedBatch.currentQty = updatedBatch.currentQty - qtyToOutplant;
+                  
+                  if (updatedBatch.currentQty > 0) {
+                    updatedBatch.status = selectedBatch.status; 
+                  } else {
+                    updatedBatch.nurseryLocation = 'N/A';
+                  }
+                }
+
+                handleUpdateBatch(updatedBatch);
+              }}
+            >
+              {updateTab === 'status' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Current Phase/Status</label>
+                    <select name="status" defaultValue={selectedBatch.status} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                      <option value="Collected/Stored">Collected / Stored</option>
+                      <option value="Propagating">Propagating / Germinating</option>
+                      <option value="Growing">Growing / Potted Up</option>
+                      <option value="Ready">Ready for Outplanting</option>
+                      <option value="Outplanted">Outplant (Deploy to Field)</option>
+                      <option value="Failed">Failed / Discarded</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Nursery Location</label>
+                    <input name="nurseryLocation" type="text" defaultValue={selectedBatch.nurseryLocation} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Current Surviving Quantity</label>
+                    <div className="flex items-center space-x-2">
+                      <input name="currentQty" type="number" min="0" max={selectedBatch.initialQty} defaultValue={selectedBatch.currentQty} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
+                      <span className="text-sm text-stone-500 whitespace-nowrap">/ {selectedBatch.initialQty} origin</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {updateTab === 'growing' && (
+                <div className="space-y-6">
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-stone-800 border-b border-stone-200 pb-2">Seed Stratification</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="col-span-2 sm:col-span-1">
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Method</label>
+                        <select name="stratMethod" defaultValue={selectedBatch.stratification?.method} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                          <option value="">Select...</option>
+                          <option value="N/A">Not Required</option>
+                          <option value="Cold Moist">Cold Moist</option>
+                          <option value="Warm then Cold">Warm then Cold</option>
+                          <option value="Scarification">Scarification (Mechanical/Acid)</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2 sm:col-span-1">
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Start Date</label>
+                        <input name="stratDate" type="date" defaultValue={selectedBatch.stratification?.startDate} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Status</label>
+                        <select name="stratStatus" defaultValue={selectedBatch.stratification?.status} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                          <option value="Pending">Pending</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-stone-800 border-b border-stone-200 pb-2">Planting Specs</h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Planting Method</label>
+                        <input name="plantMethod" type="text" placeholder="e.g. Direct Sow, Plugs" defaultValue={selectedBatch.planting?.method} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Soil Mix</label>
+                        <input name="soilMix" type="text" placeholder="e.g. Native Woody Blend" defaultValue={selectedBatch.planting?.soilMix} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Pot Type / Container</label>
+                        <input name="potType" type="text" placeholder="e.g. D40 Cell, 1 Gallon" defaultValue={selectedBatch.planting?.potType} className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {updateTab === 'treatments' && (
+                <div className="space-y-6">
+                  {selectedBatch.treatments && selectedBatch.treatments.length > 0 ? (
+                    <div className="bg-stone-50 rounded-lg border border-stone-200 overflow-hidden">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-stone-100 text-stone-600 border-b border-stone-200">
+                          <tr><th className="px-3 py-2 font-semibold">Date</th><th className="px-3 py-2 font-semibold">Type</th><th className="px-3 py-2 font-semibold">Notes</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-200">
+                          {selectedBatch.treatments.map((t, i) => (
+                            <tr key={i}><td className="px-3 py-2 text-stone-500">{t.date}</td><td className="px-3 py-2 font-medium text-stone-700">{t.type}</td><td className="px-3 py-2 text-stone-600">{t.notes}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-stone-500 italic text-center py-4 bg-stone-50 rounded-lg border border-stone-200 border-dashed">No treatments logged yet.</p>
+                  )}
+
+                  <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
+                    <h4 className="text-sm font-semibold text-emerald-800 mb-3 flex items-center"><Plus size={16} className="mr-1"/> Log New Treatment</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2 sm:col-span-1">
+                        <label className="block text-xs font-medium text-stone-700 mb-1">Type</label>
+                        <select name="newTreatmentType" className="w-full px-3 py-2 border border-stone-300 rounded-md focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                          <option value="">-- Skip --</option>
+                          <option value="Fertilizer">Fertilizer</option>
+                          <option value="Fungicide">Fungicide</option>
+                          <option value="Pesticide">Pesticide</option>
+                          <option value="Hormone">Rooting Hormone</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2 sm:col-span-1">
+                        <label className="block text-xs font-medium text-stone-700 mb-1">Notes / Product</label>
+                        <input name="newTreatmentNotes" type="text" placeholder="e.g. Fish Emulsion 5-1-1" className="w-full px-3 py-2 border border-stone-300 rounded-md focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {updateTab === 'outplant' && (
+                <div className="space-y-4">
+                  <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                    <h4 className="text-sm font-semibold text-purple-800 mb-3 flex items-center">
+                      <Truck size={16} className="mr-2" /> Record Field Deployment
+                    </h4>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-700 mb-1">Change Status To</label>
+                        <select name="status" className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                          <option value="Outplanted">Outplanted (Deploy to Field)</option>
+                          <option value="Ready">Keep as 'Ready' (Partial outplant)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-700 mb-1">Quantity to Plant Out</label>
+                        <input name="outplantQty" type="number" min="0" max={selectedBatch.currentQty} placeholder="0" className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-700 mb-1">Destination Site</label>
+                        <input name="destination" type="text" placeholder="e.g. River Bend Restoration Zone 1" className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </form>
+            <div className="p-4 flex justify-end space-x-3 border-t bg-stone-50 rounded-b-xl">
+              <button type="button" onClick={() => setIsUpdateModalOpen(false)} className="px-4 py-2 text-stone-600 hover:bg-stone-200 rounded-lg">Cancel</button>
+              <button type="submit" form="update-form" className="px-4 py-2 bg-emerald-600 text-white rounded-lg">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print QR Tag Modal */}
+      {isPrintModalOpen && batchToPrint && (
+        <div className="fixed inset-0 bg-stone-900/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-stone-50"><h3 className="font-bold text-stone-800">Print Pot Tag</h3><button onClick={() => setIsPrintModalOpen(false)}><X size={20}/></button></div>
+            <div className="p-8 flex justify-center bg-stone-200">
+              <div className="bg-white w-64 h-96 rounded-lg shadow-md border-2 border-stone-300 flex flex-col items-center justify-between p-4 relative">
+                <div className="w-4 h-4 rounded-full bg-stone-200 border border-stone-300 absolute top-4"></div>
+                <div className="mt-8 text-center w-full border-b border-stone-200 pb-4">
+                  <h4 className="font-black text-xl text-stone-800">{batchToPrint.commonName}</h4>
+                  <p className="text-sm font-serif italic text-stone-600">{batchToPrint.species}</p>
+                </div>
+                <div className="flex-1 flex items-center justify-center w-full">
+                  <div className="p-2 border-4 border-stone-800 rounded bg-white">
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(batchToPrint.id)}`} 
+                      alt={`QR Code for ${batchToPrint.id}`}
+                      className="w-[120px] h-[120px]"
+                    />
+                  </div>
+                </div>
+                <div className="w-full text-center space-y-1">
+                  <p className="font-mono font-bold text-sm text-stone-800 bg-stone-100 p-1 rounded">{batchToPrint.id}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 flex justify-between bg-white border-t border-stone-200">
+              <button onClick={() => setIsPrintModalOpen(false)} className="px-4 py-2 text-stone-600">Cancel</button>
+              <button onClick={() => setIsPrintModalOpen(false)} className="px-4 py-2 bg-stone-800 text-white rounded-lg"><Printer size={18} className="inline mr-2"/> Print</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Split Modal */}
+      {isSplitModalOpen && batchToSplit && (
+         <div className="fixed inset-0 bg-stone-900/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="p-6 border-b border-stone-200 flex justify-between"><h3 className="text-xl font-bold flex"><GitBranch className="mr-2 text-sky-600" /> Split Batch</h3><button onClick={() => setIsSplitModalOpen(false)}><X size={24}/></button></div>
+            <form id="split-form" onSubmit={handleSplitBatch} className="p-6 space-y-4">
+              <p className="text-sm text-stone-600">Create a relational child from <strong>{batchToSplit.id}</strong>. The new batch will have a `parent_id` linking it back to this original source data.</p>
+              <div><label className="block text-sm font-medium">Quantity to Move/Split</label><input name="splitQty" type="number" min="1" max={batchToSplit.currentQty - 1} required className="w-full px-3 py-2 border rounded-lg" /></div>
+              <div><label className="block text-sm font-medium">New Nursery Location</label><input name="nurseryLocation" type="text" className="w-full px-3 py-2 border rounded-lg" /></div>
+              <div>
+                <label className="block text-sm font-medium">Status of Split Batch</label>
+                <select name="status" defaultValue={batchToSplit.status} className="w-full px-3 py-2 border rounded-lg">
+                  <option value="Propagating">Propagating / Germinating</option>
+                  <option value="Growing">Growing / Potted Up</option>
+                  <option value="Ready">Ready for Outplanting</option>
+                </select>
+              </div>
+            </form>
+            <div className="p-4 flex justify-end space-x-3 border-t bg-stone-50 rounded-b-xl">
+              <button type="button" onClick={() => setIsSplitModalOpen(false)} className="px-4 py-2">Cancel</button>
+              <button type="submit" form="split-form" className="px-4 py-2 bg-sky-600 text-white rounded-lg">Confirm Split</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add New Form */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-stone-900/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl"><div className="p-6 border-b"><h3 className="text-xl font-bold">Log New Collection</h3></div>
+            <form className="p-6 space-y-4" onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target); handleAddBatch({ species: fd.get('sp'), commonName: fd.get('cn'), sourceLocation: fd.get('loc'), collectionDate: fd.get('date'), initialQty: parseInt(fd.get('qty'))}); }}>
+              <p className="text-sm text-stone-600 mb-4 border-l-4 border-sky-500 pl-3 bg-sky-50 p-2">The system will automatically generate a semantic ID (e.g., YYYY-MM-SPECIES-SOURCE) to match the relational database architecture.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium">Species</label><input required name="sp" placeholder="e.g. Acer macrophyllum" className="w-full px-3 py-2 border rounded-lg" /></div>
+                <div><label className="block text-sm font-medium">Common Name</label><input required name="cn" placeholder="e.g. Bigleaf Maple" className="w-full px-3 py-2 border rounded-lg" /></div>
+                <div><label className="block text-sm font-medium">Collection Date</label><input required name="date" type="date" className="w-full px-3 py-2 border rounded-lg" defaultValue="2026-02-15" /></div>
+                <div><label className="block text-sm font-medium">Source Location</label><input required name="loc" placeholder="e.g. Discovery Park" className="w-full px-3 py-2 border rounded-lg" /></div>
+                <div><label className="block text-sm font-medium">Initial Qty</label><input required name="qty" type="number" className="w-full px-3 py-2 border rounded-lg" /></div>
+              </div>
+              <div className="pt-4 flex justify-end space-x-3 border-t"><button type="button" onClick={() => setIsAddModalOpen(false)} className="px-4 py-2">Cancel</button><button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg">Save</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Scan Modal */}
+      {isScanModalOpen && (
+        <div className="fixed inset-0 bg-stone-900/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="w-full max-w-md flex flex-col items-center">
+            <div className="relative w-72 h-72 border-2 border-emerald-500 rounded-3xl overflow-hidden bg-black flex items-center justify-center shadow-[0_0_40px_rgba(16,185,129,0.3)]">
+              <div className="absolute inset-0 opacity-20 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHBhdGggZD0iTTAgMGg0MHY0MEgweiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjIwIiBjeT0iMjAiIHI9IjIiIGZpbGw9IiNmZmYiLz48L3N2Zz4=')]"></div>
+              {scanStatus === 'scanning' && (
+                <div className="absolute w-full h-1 bg-emerald-400 shadow-[0_0_15px_#34d399] animate-[scan_2s_ease-in-out_infinite]"></div>
+              )}
+              {scanStatus === 'found' ? (
+                <div className="z-10 bg-emerald-500 text-white p-4 rounded-full flex flex-col items-center animate-bounce"><CheckCircle2 size={48} /></div>
+              ) : (
+                <ScanLine size={100} className="text-emerald-500/50 z-10" strokeWidth={1} />
+              )}
+            </div>
+            <p className="text-white mt-8 text-lg font-medium tracking-wide">
+              {scanStatus === 'scanning' ? 'Align QR code within frame...' : 'Batch Found! Loading data...'}
+            </p>
+            <button onClick={() => setIsScanModalOpen(false)} className="mt-8 px-6 py-2 bg-stone-800 text-white rounded-full hover:bg-stone-700 border border-stone-600">Cancel Scan</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
