@@ -12,8 +12,11 @@ export default function SignIn({ onSignedIn }: { onSignedIn?: () => void }) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    console.log('URL being used:', import.meta.env.VITE_SUPABASE_URL);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      console.log('FULL ERROR:', JSON.stringify(error, null, 2));
+      console.log('ERROR MESSAGE:', error.message);
       setError(error.message);
       setLoading(false);
     } else {
