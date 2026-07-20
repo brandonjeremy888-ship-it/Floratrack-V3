@@ -342,7 +342,7 @@ export default function App() {
   };
 
   // --- COMPONENTS ---
-  const Dashboard = () => (
+  const dashboardContent = (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-stone-800">Nursery Overview</h2>
 
@@ -390,7 +390,7 @@ export default function App() {
     </div>
   );
 
-  const Climate = () => (
+  const climateContent = (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -457,7 +457,7 @@ export default function App() {
     </div>
   );
 
-  const Inventory = () => (
+  const inventoryContent = (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-stone-800">Plant Inventory</h2>
@@ -638,7 +638,7 @@ export default function App() {
         </header>
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-6xl mx-auto">
-            {activeTab === 'dashboard' ? <Dashboard /> : activeTab === 'inventory' ? <Inventory /> : <Climate />}
+          {activeTab === 'dashboard' ? dashboardContent : activeTab === 'inventory' ? inventoryContent : climateContent}
           </div>
         </div>
       </main>
