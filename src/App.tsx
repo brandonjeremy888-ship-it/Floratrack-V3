@@ -9,6 +9,7 @@ import {
   type Flag,
 } from './lib/supabase';
 import { useAuth } from './lib/useAuth';
+import { Html5Qrcode } from 'html5-qrcode';
 import SignIn from './components/SignIn';
 import AdminPanel from './components/AdminPanel';
 
@@ -67,6 +68,9 @@ export default function App() {
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'found' | 'not_found'>('idle');
   const [scanInput, setScanInput] = useState('');
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const qrScannerRef = React.useRef<Html5Qrcode | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [batchToPrint, setBatchToPrint] = useState<Batch | null>(null);
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
@@ -297,7 +301,45 @@ export default function App() {
     setScanStatus('idle');
     setScanInput('');
   };
+  const startCameraScan = async () => {
+    setCameraError(null);
+    setScanStatus('scanning');
+    try {
+      const scanner = new Html5Qrcode('qr-reader');
+      qrScannerRef.current = scanner;
+      setIsCameraActive(true);
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decodedText) => {
+          // A QR code was read — decodedText is the batch ID
+          stopCameraScan();
+          handleManualScanLookup(decodedText.trim());
+        },
+        () => {
+          // ignore per-frame scan misses (fires constantly, harmless)
+        }
+      );
+    } catch (err: any) {
+      setCameraError(err?.message || 'Could not access camera');
+      setIsCameraActive(false);
+      setScanStatus('idle');
+    }
+  };
 
+  const stopCameraScan = async () => {
+    const scanner = qrScannerRef.current;
+    if (scanner) {
+      try {
+        await scanner.stop();
+        await scanner.clear();
+      } catch {
+        // scanner may already be stopped — safe to ignore
+      }
+      qrScannerRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
   const handleManualScanLookup = async (id: string) => {
     const found = batches.find(b => b.id === id);
     if (found) {
@@ -1038,6 +1080,30 @@ export default function App() {
             </p>
 
             {/* Manual lookup fallback (works without camera permissions) */}
+            {/* Camera scanner area */}
+            <div id="qr-reader" className={`w-full ${isCameraActive ? 'block' : 'hidden'} rounded-lg overflow-hidden mt-4`}></div>
+
+            {cameraError && (
+              <p className="text-red-400 text-sm mt-3 text-center max-w-xs">{cameraError}</p>
+            )}
+
+            <div className="mt-4 w-full flex justify-center">
+              {!isCameraActive ? (
+                <button
+                  onClick={startCameraScan}
+                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center"
+                >
+                  <Camera size={18} className="mr-2" /> Start Camera
+                </button>
+              ) : (
+                <button
+                  onClick={stopCameraScan}
+                  className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center"
+                >
+                  <X size={18} className="mr-2" /> Stop Camera
+                </button>
+              )}
+            </div>
             <div className="mt-6 w-full">
               <div className="flex space-x-2">
                 <input
