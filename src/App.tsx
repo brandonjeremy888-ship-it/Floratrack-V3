@@ -294,22 +294,8 @@ export default function App() {
 
   const handleSimulateScan = () => {
     setIsScanModalOpen(true);
-    setScanStatus('scanning');
+    setScanStatus('idle');
     setScanInput('');
-    setTimeout(() => {
-      // pick the first batch as the "scanned" one for the demo
-      const found = batches[0];
-      if (found) {
-        setScanStatus('found');
-        setTimeout(() => {
-          setIsScanModalOpen(false);
-          openUpdateModal(found);
-          setScanStatus('idle');
-        }, 1000);
-      } else {
-        setScanStatus('not_found');
-      }
-    }, 1500);
   };
 
   const handleManualScanLookup = async (id: string) => {
@@ -499,7 +485,7 @@ export default function App() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
             <input
               type="text"
-              placeholder="Search by species, ID, or location..."
+              placeholder="Search by species, common name, or ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
@@ -1052,20 +1038,51 @@ export default function App() {
             </p>
 
             {/* Manual lookup fallback (works without camera permissions) */}
-            <div className="mt-6 w-full flex space-x-2">
-              <input
-                type="text"
-                placeholder="Or enter batch ID..."
-                value={scanInput}
-                onChange={(e) => setScanInput(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-lg bg-stone-800 text-white border border-stone-600 placeholder-stone-500 outline-none"
-              />
-              <button
-                onClick={() => scanInput && handleManualScanLookup(scanInput.trim())}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg"
-              >
-                Lookup
-              </button>
+            <div className="mt-6 w-full">
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  placeholder="Start typing a batch ID or species..."
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-lg bg-stone-800 text-white border border-stone-600 placeholder-stone-500 outline-none"
+                />
+                <button
+                  onClick={() => scanInput && handleManualScanLookup(scanInput.trim())}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg"
+                >
+                  Lookup
+                </button>
+              </div>
+
+              {scanInput.trim() !== '' && (
+                <div className="mt-2 bg-stone-800 border border-stone-600 rounded-lg max-h-48 overflow-y-auto">
+                  {batches
+                    .filter(b =>
+                      b.id.toLowerCase().includes(scanInput.toLowerCase()) ||
+                      b.species.toLowerCase().includes(scanInput.toLowerCase()) ||
+                      b.common_name.toLowerCase().includes(scanInput.toLowerCase())
+                    )
+                    .slice(0, 8)
+                    .map(b => (
+                      <button
+                        key={b.id}
+                        onClick={() => handleManualScanLookup(b.id)}
+                        className="w-full text-left px-3 py-2 hover:bg-stone-700 border-b border-stone-700 last:border-b-0"
+                      >
+                        <span className="font-mono text-emerald-400 text-sm">{b.id}</span>
+                        <span className="text-stone-300 text-sm ml-2">{b.common_name}</span>
+                      </button>
+                    ))}
+                  {batches.filter(b =>
+                    b.id.toLowerCase().includes(scanInput.toLowerCase()) ||
+                    b.species.toLowerCase().includes(scanInput.toLowerCase()) ||
+                    b.common_name.toLowerCase().includes(scanInput.toLowerCase())
+                  ).length === 0 && (
+                    <p className="px-3 py-2 text-stone-500 text-sm">No matches found</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <button onClick={() => setIsScanModalOpen(false)} className="mt-8 px-6 py-2 bg-stone-800 text-white rounded-full hover:bg-stone-700 border border-stone-600">Cancel Scan</button>
