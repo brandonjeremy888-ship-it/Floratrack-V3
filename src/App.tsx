@@ -201,6 +201,7 @@ export default function App() {
     status?: string;
     nurseryLocation?: string;
     currentQty?: number;
+    seedWeightOz?: number;
     stratification?: any;
     planting?: any;
     newTreatment?: { type: string; notes: string } | null;
@@ -213,6 +214,7 @@ export default function App() {
         status: patch.status ?? updated.status,
         nursery_location: patch.nurseryLocation ?? updated.nursery_location,
         current_qty: patch.currentQty ?? updated.current_qty,
+        seed_weight_oz: patch.seedWeightOz ?? updated.seed_weight_oz,
         stratification: patch.stratification ?? updated.stratification,
         planting: patch.planting ?? updated.planting,
       }).eq('id', updated.id);
@@ -795,6 +797,7 @@ export default function App() {
                   status: finalStatus,
                   nurseryLocation: finalLocation,
                   currentQty: finalQty,
+                  seedWeightOz: fd.get('seedWeightOz') ? parseFloat(String(fd.get('seedWeightOz'))) : selectedBatch.seed_weight_oz,
                   stratification,
                   planting,
                   newTreatment,
@@ -833,6 +836,23 @@ export default function App() {
                       <span className="text-sm text-stone-500 whitespace-nowrap">/ {selectedBatch.initial_qty} origin</span>
                     </div>
                   </div>
+                  {selectedBatch.collection_type === 'Seed' && (
+                    <div>
+                      <label className="block text-sm font-medium text-stone-700 mb-1">Seed Weight (oz)</label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          name="seedWeightOz"
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          defaultValue={selectedBatch.seed_weight_oz ?? ''}
+                          className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-yellow-500 outline-none"
+                        />
+                        <span className="text-sm text-stone-500 whitespace-nowrap">oz</span>
+                      </div>
+                      <p className="text-xs text-stone-400 mt-1">Cleaned seed on hand, measured by weight.</p>
+                    </div>
+                  )}
                 </div>
               )}
 
