@@ -133,12 +133,25 @@ export default function App() {
 
   const stats = useMemo(() => {
     const active = batches.filter(b => b.status !== 'Outplanted' && b.status !== 'Failed');
+
+    // Seed lots: batches that are seed type and still measured by weight (not yet sown)
+    const seedLots = batches.filter(
+      b => b.collection_type === 'Seed' && (b.seed_weight_oz ?? 0) > 0
+    );
+    const totalSeedOz = seedLots.reduce((sum, b) => sum + (b.seed_weight_oz ?? 0), 0);
+
     return {
       totalActiveBatches: active.length,
-      totalActivePlants: active.reduce((sum, b) => sum + b.current_qty, 0),
-      readyToPlant: batches.filter(b => b.status === 'Ready').reduce((sum, b) => sum + b.current_qty, 0),
+      // Guard: don't count seed lots as plants; treat missing qty as 0
+      totalActivePlants: active.reduce((sum, b) => {
+        if (b.collection_type === 'Seed' && !b.current_qty) return sum;
+        return sum + (b.current_qty || 0);
+      }, 0),
+      readyToPlant: batches.filter(b => b.status === 'Ready').reduce((sum, b) => sum + (b.current_qty || 0), 0),
       totalOutplanted: batches.reduce((sum, b) => sum + b.outplantings.reduce((sub, out) => sub + out.qty, 0), 0),
-      activeAlerts: batches.filter(b => b.flags && b.flags.length > 0).length
+      activeAlerts: batches.filter(b => b.flags && b.flags.length > 0).length,
+      seedLotCount: seedLots.length,
+      totalSeedOz: totalSeedOz
     };
   }, [batches]);
 
@@ -414,10 +427,22 @@ export default function App() {
             <p className="text-2xl font-bold text-stone-800">{stats.totalOutplanted.toLocaleString()}</p>
           </div>
         </div>
+
+        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm flex items-center space-x-4">
+          <div className="p-3 bg-yellow-100 text-yellow-700 rounded-lg">
+            <Sprout size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-stone-500">Seed in Storage</p>
+            <p className="text-2xl font-bold text-stone-800">
+              {stats.totalSeedOz.toLocaleString()} <span className="text-lg font-medium">oz</span>
+            </p>
+            <p className="text-xs text-stone-400">{stats.seedLotCount} seed {stats.seedLotCount === 1 ? 'lot' : 'lots'}</p>
+          </div>
+        </div>
       </div>
     </div>
   );
-
   const climateContent = (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -594,7 +619,13 @@ export default function App() {
                   </td>
                   <td className="p-4 text-sm text-stone-700">{batch.nursery_location}</td>
                   <td className="p-4 text-right">
-                    <p className="font-medium text-stone-800">{batch.current_qty}</p>
+                    {batch.collection_type === 'Seed' && (batch.seed_weight_oz ?? 0) > 0 ? (
+                      <p className="font-medium text-yellow-700">
+                        {batch.seed_weight_oz} <span className="text-xs font-normal">oz</span>
+                      </p>
+                    ) : (
+                      <p className="font-medium text-stone-800">{batch.current_qty}</p>
+                    )}
                   </td>
                   <td className="p-4 text-center">
                     <span className={`px-2.5 py-1 text-xs font-medium rounded-full border inline-block ${STATUS_COLORS[batch.status as keyof typeof STATUS_COLORS] || 'bg-stone-100 text-stone-800 border-stone-300'}`}>
